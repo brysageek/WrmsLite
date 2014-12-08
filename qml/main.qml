@@ -1,5 +1,8 @@
 import QtQuick 2.1
 import QtQuick.Controls 1.0
+import QtQuick.Dialogs 1.2
+import QtQuick.Window 2.0
+import QtQuick.Layouts 1.1
 import ArcGIS.Runtime 10.3
 import ArcGIS.Runtime.Toolkit.Dialogs 1.0
 import QtPositioning 5.3
@@ -12,15 +15,22 @@ ApplicationWindow {
     height: 480
     title: "WrmsLite"
 
-    Map{
+    property int hitFeatureId:0
+    property variant attrValue
+    property real scaleFactor: 1
 
+    GeodatabaseFeatureServiceTable{
+       id:incidentsFeatureService
+       url:"https://gisonlinetest.odf.state.or.us/arcgis/rest/services/WRMS/Incidents/MapServer/0"
+    }
+
+    Map{
         property Point locationPoint: Point{
             property bool valid: false
             spatialReference: SpatialReference{
                 wkid: 4326
             }
         }
-
 
         id:mainMap
         anchors.fill: parent
@@ -41,9 +51,14 @@ ApplicationWindow {
             url: "https://gisonlinetest.odf.state.or.us/arcgis/rest/services/WebMercator/PLSS/MapServer"
         }
 
-        ArcGISDynamicMapServiceLayer{
-            id:incidents
-            url:"https://gisonlinetest.odf.state.or.us/arcgis/rest/services/WRMS/Incidents/MapServer"
+        //ArcGISDynamicMapServiceLayer{
+           // id:incidents
+           // url:"https://gisonlinetest.odf.state.or.us/arcgis/rest/services/WRMS/Incidents/MapServer"
+        //}
+
+        FeatureLayer{
+            id:incidentsFeatureLayer
+            featureTable: incidentsFeatureService
         }
 
         positionDisplay{
@@ -63,7 +78,52 @@ ApplicationWindow {
                     console.log("There was an error with the Positional Display... Not sure as to why")
                 }
         }
-        onMapReady:extent=oregonExtent;
+
+        onMapReady:extent=oregonExtent
+
+        onMouseClicked: {
+            var features = incidentsFeatureLayer.findFeatures(mouse.x,mouse.y,0,1);
+            for (var i=0;i<features.length;i++)
+            {
+                hitFeatureId =features[i];
+                getFields(features);
+                identifyDialog.title = "ObjectID" + hitFeatureId;;
+                identifyDialog.visible = true;
+            }
+        }
+    }
+
+    SimpleDialog {
+            id: identifyDialog
+            title: "Object ID: " + hitFeatureId
+            height: (column.height * 1.3) * scaleFactor
+            width: (column.width * 1.05) * scaleFactor
+
+            Column {
+                id: column
+                spacing: 5 * scaleFactor
+                anchors.centerIn: parent
+                Repeater {
+                    model: fieldsModel
+                    Row {
+                        id: row
+                        spacing: (80 * scaleFactor)  - nameLabel.width
+                        Label {
+                            id: nameLabel
+                            text: name + ": "
+                            font.pixelSize: 10 * scaleFactor
+                        }
+                        Label {
+                            text: value
+                            font.pixelSize: 10 * scaleFactor
+                        }
+                    }
+                }
+            }
+
+            onRejected: {
+                hitFeatureId = 0;
+            }
     }
 
     Envelope{
@@ -77,12 +137,25 @@ ApplicationWindow {
         }
     }
 
+    ListModel{
+        id:fieldsModel
+    }
+
     Rectangle{
         id:topBar
         color: "black"
         height:parent.height/10
         width:parent.width
         opacity: .75
+
+        Text{
+            id:latLonPostionalData
+            visible:positionSource.active
+            color:"white"
+            anchors.left: parent.left
+            anchors.leftMargin: 10
+            anchors.verticalCenter: parent
+        }
 
         Button{
             id:gpsButton
@@ -101,5 +174,22 @@ ApplicationWindow {
                 console.log("Hey you just clicked the button to turn the gps on" + qsTr(mainMap.positionDisplay.mode.toString()))
             }
         }
+    }
+
+    function getFields( featureLayer ) {
+          fieldsModel.clear();
+          var fieldsCount = incidentsFeatureLayer.featureTable.fields.length;
+          for ( var f = 0; f < fieldsCount; f++ ) {
+              var fieldName = incidentsFeatureLayer.featureTable.fields[f].name;
+              attrValue = incidentsFeatureLayer.featureTable.feature(hitFeatureId).attributeValue(fieldName);
+              if ( fieldName !== "Shape" ) {
+                  var attrString = attrValue;
+                  fieldsModel.append({"name": fieldName, "value": attrString});
+              }
+          }
+    }
+
+    function locationPointChanged(){
+        latLonPostionalData.text = "Lat: "+positionSource.position.coordinate.latitude+" Lon: "+positionSource.position.coordinate.longitude+" Alt: "+positionSource.position.coordinate.altitude;
     }
 }
